@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Snowfight | Christmas Arcade Game by Cornelius Aurelius</title>
+<meta name="description" content="Slide across the snow, fire chocolate buttons and stop the toy army in Snowfight, a free Christmas arcade game by Cornelius Aurelius.">
+<meta name="theme-color" content="#142a4b">
+<link rel="canonical" href="https://cornelius-aurelius.github.io/snowfight/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Snowfight ❄️ 40-Level Christmas Arcade Game">
+<meta property="og:description" content="One snowman. A tin of chocolate buttons. An entire toy army. Play Snowfight, a Christmas arcade game by Cornelius Aurelius.">
+<meta property="og:url" content="https://cornelius-aurelius.github.io/snowfight/">
+<meta property="og:image" content="https://cornelius-aurelius.github.io/snowfight/share.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Snowfight. A snowman in a red scarf flings a chocolate button at a charging army of wind-up toys.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Snowfight ❄️ 40-Level Christmas Arcade Game">
+<meta name="twitter:description" content="Fire chocolate buttons and stop the toy army in this Christmas arcade game by Cornelius Aurelius.">
+<meta name="twitter:image" content="https://cornelius-aurelius.github.io/snowfight/share.jpg">
+<meta name="author" content="Cornelius Aurelius">
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="game.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Snowfight","genre":["Arcade","Christmas"],"gamePlatform":"Web browser","url":"https://cornelius-aurelius.github.io/snowfight/","author":{"@type":"Person","name":"Cornelius Aurelius","url":"https://corneliusaurelius.com/"}}</script>
+</head>
+<body>
+<main aria-label="Snowfight" id="arena">
+  <canvas id="game" aria-label="Snowy battlefield. Move the snowman with a drag, the arrow keys, or A and D. Shots fire automatically."></canvas>
+  <header>
+    <div class="hud"><div class="brand">SNOWFIGHT</div><div id="health" aria-label="5 snowballs remaining"></div></div>
+    <div class="wave"><span id="chapter">LEVEL 1 / 40</span><span id="wave">WAVE 1 / 5</span><small id="score">0 pts</small></div>
+    <button id="pause" aria-label="Pause game" disabled>Ⅱ</button>
+  </header>
+  <div id="toast" aria-live="polite"></div>
+  <div id="streak" hidden></div>
+  <div id="hint">Drag to slide · Aim by moving</div>
+  <section id="panel" aria-label="Game menu">
+    <div id="main-card" class="card">
+      <p id="location" class="location">Toy Factory · Level 1</p>
+      <h1 id="title">Snowfight</h1>
+      <p id="details">Slide, fling chocolate buttons, and stop the toy army.</p>
+      <button id="action">Play</button>
+      <button id="again" hidden>Restart level</button>
+      <button id="levels">Levels</button>
+      <div id="best"></div>
+      <a class="credit" href="https://corneliusaurelius.com/" target="_blank" rel="noopener">By Cornelius Aurelius</a>
+    </div>
+    <div id="level-picker" class="card picker" hidden>
+      <div class="picker-header">
+        <h2>Choose a level</h2>
+        <button id="close-levels">Back</button>
+      </div>
+      <div id="level-grid"></div>
+    </div>
+  </section>
+  <footer><button id="mute" aria-label="Mute sound" title="Sound" aria-pressed="false">♫</button>
+    <button id="share" aria-label="Share Snowfight" title="Share">↗</button>
+  </footer>
+</main>
+<script src="game.js" defer></script>
+</body>
+</html>
