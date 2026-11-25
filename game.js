@@ -4,6 +4,7 @@ const get = id => document.getElementById(id);
 const canvas = get('game');
 const context = canvas.getContext('2d', { alpha: false });
 const backdrop = document.createElement('canvas');
+const giftLayer = document.createElement('canvas');
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const stages = [
   { rows: 9, speed: 4.3, hp: 1 },
@@ -115,6 +116,9 @@ const campaign = [
   ['The Emperor’s Guard','NPTPL', 3.0, 21,29,40],
 ].map(([name,waves,gap,companion,double,gifts]) => ({name,waves,gap,companion,double,gifts}));
 const totalLevels = campaign.length;
+const medalData = read('snowfight-medals', {});
+const medals = medalData && typeof medalData === 'object' ? medalData : {};
+const medalNames = ['', 'Bronze', 'Silver', 'Gold'];
 let unlocked = clamp(Math.floor(Number(read('snowfight-unlocked',1)) || 1),1,totalLevels);
 let level = unlocked;
 let world = worlds[Math.floor((level-1)/levelsPerWorld)];
@@ -124,7 +128,10 @@ let width, height, ratio, laneWidth, playerY;
 let phase = 'ready';
 let waveIndex, health, score, player, enemies, shots, gifts, upgrades, particles;
 let shotTimer, clock, between, hintTimer, messageUntil, pointerId, pointerX;
-let lastTime = 0, readyFrame = 0;
+let lastTime = 0, readyFrame = 0, stepDebt = 0;
+let quality = 2, framePressure = 0, stableTime = 0;
+let giftLayerDirty = true, rushUntil = 0, rushSecond = 0;
+let popups = [];
 let visualTime = 0, bossEntrance = -2;
 let streak, peakStreak, streakUntil;
 let bestStreak = read('snowfight-best-streak', 0);
@@ -250,10 +257,10 @@ function loadArtwork(name, file, isScenery = false, fallback = '') {
   const image = document.createElement('img');
   image.decoding = 'async';
   image.onload = () => {
-    if (name.startsWith('scene-') && name !== 'scene-'+level) return;
+    if (name.startsWith('scene-') && !sceneryRequested.has(name)) return;
     artwork[name] = image;
     if (!width) return;
-    if (isScenery) paintBackdrop();
+    if (isScenery && name === 'scene-'+level) paintBackdrop();
     if (phase !== 'playing') draw();
   };
   if (fallback) image.onerror = () => {
@@ -268,16 +275,22 @@ function prepareScenery() {
     if (world.art !== 'factory') loadArtwork(`boss-${world.art}`,`art/boss-${world.art}.webp`);
   }
   const key = 'scene-'+level;
-  if (sceneryRequested.has(key)) return;
   // Retain only the displayed scene and use the browser's image cache on replay.
   for (const name of sceneryRequested) {
-    if (name.startsWith('scene-')) {
+    if (name.startsWith('scene-') && name !== key && name !== 'scene-'+(level+1)) {
       sceneryRequested.delete(name);
       delete artwork[name];
     }
   }
+  requestScene(level);
+}
+function requestScene(number) {
+  if (number > totalLevels) return;
+  const key = 'scene-'+number;
+  if (sceneryRequested.has(key)) return;
   sceneryRequested.add(key);
-  loadArtwork(key,`art/scenes/${level}.webp`,true,`art/${world.art}.webp`);
+  const area = worlds[Math.floor((number-1)/levelsPerWorld)];
+  loadArtwork(key,`art/scenes/${number}.webp`,true,`art/${area.art}.webp`);
 }
 prepareScenery();
 for (const name of ['drum','train','jack','bear']) loadArtwork(name,`art/${name}.webp`);
@@ -285,7 +298,7 @@ loadArtwork('button', 'art/button.webp');
 for (const name of Object.keys(sprites)) loadArtwork(name, `art/${name}.webp`);
 
 function stamp(name, x, y, scale, tilt = 0, lift = 0) {
-  oval(context, x + 4*scale, y + 2*scale, 26*scale, Math.max(1,7*scale), '#294d6922');
+  if (quality === 2) oval(context, x + 4*scale, y + 2*scale, 26*scale, Math.max(1,7*scale), '#294d6922');
   oval(context, x, y, 17*scale, Math.max(1,4*scale), '#243d634a');
   const image = (name === 'boss' && artwork[`boss-${world.art}`]) || artwork[name];
   if (!image) {
@@ -396,6 +409,7 @@ function paintFloor(ctx) {
 }
 
 function paintBackdrop() {
+  giftLayerDirty = true;
   const ctx = backdrop.getContext('2d', { alpha: false });
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   const sky = ctx.createLinearGradient(0,0,0,height);
@@ -454,11 +468,15 @@ function resize() {
   const rect = canvas.getBoundingClientRect();
   width = rect.width;
   height = rect.height;
-  ratio = Math.min(devicePixelRatio || 1, 1.65, Math.sqrt(1_500_000 / (width * height)));
+  const maxPixels = [440_000, 760_000, 1_200_000][quality];
+  ratio = Math.min(devicePixelRatio || 1, [1,1.33,1.6][quality], Math.sqrt(maxPixels/(width*height)));
   laneWidth = Math.min(width * .49, height * .45);
   playerY = height * .69;
   canvas.width = backdrop.width = Math.round(width * ratio);
   canvas.height = backdrop.height = Math.round(height * ratio);
+  giftLayer.width = canvas.width;
+  giftLayer.height = canvas.height;
+  giftLayerDirty = true;
   context.setTransform(ratio,0,0,ratio,0,0);
   paintBackdrop();
   draw();
@@ -466,18 +484,31 @@ function resize() {
 
 function scaleAt(s) { return s * clamp(Math.min(width / 480, height / 680), .44, 1.3); }
 
-function gift(x, y, s, label, warm = false) {
-  oval(context,x,y,25*s,6*s,warm ? '#fa83b66e' : '#7bffe373');
-  round(context,x-21*s,y-33*s,42*s,34*s,4*s,warm ? '#a3275f' : '#087970');
-  round(context,x-21*s,y-34*s,42*s,9*s,3*s,warm ? '#db6181' : '#44bfce');
-  round(context,x-3*s,y-34*s,6*s,9*s,1*s,'#defcff');
-  oval(context,x-5*s,y-36*s,5*s,2.5*s,'#b4f0ee');
-  oval(context,x+5*s,y-36*s,5*s,2.5*s,'#b4f0ee');
-  round(context,x+16*s,y-24*s,3*s,20*s,1*s,'#081b4040');
-  context.font = `900 ${Math.max(8, 18*s)}px system-ui`;
-  context.textAlign = 'center';
-  context.fillStyle = '#fff';
-  context.fillText(label,x,y-7*s);
+function gift(ctx, x, y, s, warm) {
+  oval(ctx,x,y,25*s,6*s,warm ? '#fa83b66e' : '#7bffe373');
+  round(ctx,x-21*s,y-33*s,42*s,34*s,4*s,warm ? '#a3275f' : '#087970');
+  round(ctx,x-21*s,y-34*s,42*s,9*s,3*s,warm ? '#db6181' : '#44bfce');
+  round(ctx,x-3*s,y-34*s,6*s,9*s,1*s,'#defcff');
+  oval(ctx,x-5*s,y-36*s,5*s,2.5*s,'#b4f0ee');
+  oval(ctx,x+5*s,y-36*s,5*s,2.5*s,'#b4f0ee');
+  round(ctx,x+16*s,y-24*s,3*s,20*s,1*s,'#081b4040');
+  ctx.font = `900 ${Math.max(8, 18*s)}px system-ui`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('+1',x,y-7*s);
+}
+
+function paintGifts() {
+  const ctx = giftLayer.getContext('2d');
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+  ctx.drawImage(backdrop,0,0,width,height);
+  for (let i=gifts.length-1;i>=0;i--) {
+    const item = gifts[i];
+    if (item.used) continue;
+    const [x,y,s] = project(item.x,item.z);
+    gift(ctx,x,y,scaleAt(s)*1.28,i%2 === 1);
+  }
+  giftLayerDirty = false;
 }
 
 function chocolate(x,y,s) {
@@ -500,7 +531,7 @@ function lightRing(x,y,r,color) {
 }
 
 function drawWeather(time) {
-  for (let i = 0; i < 32; i++) {
+  for (let i = 0; i < [0,12,28][quality]; i++) {
     const near = i % 4 === 0;
     const y = (i*97 + time*(near ? 57 : 21)) % height;
     const x = (i*173 + time*(near ? 40 : 12) + Math.sin(time+i)*8) % width;
@@ -511,31 +542,30 @@ function drawWeather(time) {
 
 function draw() {
   if (!player || !width) return;
-  context.drawImage(backdrop,0,0,width,height);
+  if (giftLayerDirty) paintGifts();
+  context.drawImage(giftLayer,0,0,width,height);
   const moving = !reduced && (phase === 'playing' || phase === 'ready');
   if (moving) drawWeather(visualTime);
-  for (let i = gifts.length - 1; i >= 0; i--) {
-    const item = gifts[i];
-    if (item.used) continue;
-    const [x,y,s] = project(item.x,item.z);
-    gift(x,y,scaleAt(s) * 1.28,'+1',i % 2 === 1);
-  }
   for (const enemy of enemies) {
     const [x,y,s] = project(enemy.x,enemy.z);
     const size = scaleAt(s) * (enemy.type === 'boss' ? 2.6 : 1.06*toyTypes[enemy.type].size);
     const stride = visualTime * (enemy.type === 'boss' ? 5 : 11) + enemy.seed*.67;
     const lift = enemy.type === 'jack' ? 13 : enemy.type === 'train' ? 2 : 6;
-    const bounce = moving ? Math.abs(Math.sin(stride))*lift*size : 0;
-    const tilt = moving ? Math.sin(stride)*(enemy.type === 'train' ? .035 : .095) : 0;
+    const bounce = moving && quality > 0 ? Math.abs(Math.sin(stride))*lift*size : 0;
+    const tilt = moving && quality === 2 ? Math.sin(stride)*(enemy.type === 'train' ? .035 : .095) : 0;
     if (enemy.type === 'boss') {
       oval(context,x,y,34*size,9*size,'#ff536c5f');
       oval(context,x,y,25*size,6*size,'#ffa66968');
       lightRing(x,y,(41+Math.sin(reduced ? 0 : visualTime*4)*5)*size,'#ffcb7bd8');
       const arrival = clock-bossEntrance;
-      if (!reduced && arrival < 1.1) {
+      if (!reduced && quality && arrival >= 0 && arrival < 1.1) {
         const radius = (36+arrival*85)*size;
         lightRing(x,y,radius,'#ffcf91bd');
         lightRing(x,y,radius*.72,'#ff726a91');
+        if (quality === 2) {
+          polygon(context,[[x-3*size,y-160*size],[x+3*size,y-160*size],
+            [x+24*size,y],[x-24*size,y]],world.accent+'3a');
+        }
       }
     }
     stamp(enemy.type,x,y,size,tilt,bounce);
@@ -574,9 +604,9 @@ function draw() {
   for (const shot of shots) {
     const [x,y,s] = project(shot.x,shot.z);
     const radius = scaleAt(s)*1.16;
-    if (!reduced) {
+    if (!reduced && quality) {
       polygon(context,[[x-3*radius,y-14*radius],[x+3*radius,y-14*radius],[x+radius,y+16*radius],[x-radius,y+16*radius]],'#ffd47796');
-      oval(context,x,y-12*radius,8*radius,7*radius,'#ffe9b54a');
+      if (quality === 2) oval(context,x,y-12*radius,8*radius,7*radius,'#ffe9b54a');
     }
     chocolate(x,y-14*radius,radius);
   }
@@ -596,12 +626,31 @@ function draw() {
     }
     context.globalAlpha = 1;
   }
+  if (!reduced && quality && popups.length) {
+    context.font = '900 14px system-ui';
+    context.textAlign = 'center';
+    for (const popup of popups) {
+      const [x,y] = project(popup.x,popup.z);
+      const rise = (popup.until-clock)*36;
+      const baseline = y-49+rise;
+      context.globalAlpha = Math.min(1,(popup.until-clock)*4);
+      context.fillStyle = '#172342';
+      context.fillText(popup.text,x,baseline+2);
+      context.fillStyle = '#ffeda5';
+      context.fillText(popup.text,x,baseline);
+    }
+    context.globalAlpha = 1;
+  }
   for (let i = 0; i < player.helpers; i++) {
     const [x,y,s] = project(clamp(player.x + helperOffset(i),-.98,.98),0);
     stamp('snowman',x,y+12+Math.floor(i/4)*8,scaleAt(s)*.48);
   }
   const [x,y,s] = project(player.x,0);
   const heroScale = scaleAt(s)*1.25;
+  if (rushUntil > clock && !reduced) {
+    lightRing(x,y,(42+3*Math.sin(visualTime*10))*heroScale,'#ffdf8e');
+    lightRing(x,y,38*heroScale,'#85eeff');
+  }
   oval(context,x,y+2*heroScale,33*heroScale,9*heroScale,'#a3f6ff65');
   oval(context,x,y+2*heroScale,25*heroScale,6*heroScale,'#b4f8ff5c');
   if (phase === 'playing' && !reduced) {
@@ -673,6 +722,7 @@ function refreshHud() {
 }
 function loadWave(index) {
   waveIndex = index;
+  if (index === 2) requestScene(level+1);
   between = -1;
   const stage = stages[index];
   const local = (level-1)%levelsPerWorld;
@@ -686,7 +736,7 @@ function loadWave(index) {
   enemies = [];
   if (index === stages.length - 1) {
     bossEntrance = clock;
-    message(`The ${world.boss}`,1.7);
+    message(`Boss wave · ${world.boss}`,1.9);
     feedback(175,.36);
     const hp = 78 + chapter*9 + local*3;
     const base = (sequence[0] === 'left' ? -.32 : sequence[0] === 'right' ? .20 : -.14);
@@ -726,6 +776,10 @@ function reset(phaseName = 'playing') {
   shotTimer = 0;
   messageUntil = 0;
   streak = peakStreak = streakUntil = 0;
+  rushUntil = rushSecond = stepDebt = 0;
+  popups = [];
+  get('rush').hidden = true;
+  giftLayerDirty = true;
   get('streak').hidden = true;
   player = { x:0, target:0, helpers:0, double:false, guard:0 };
   const design = campaign[level-1];
@@ -754,7 +808,23 @@ function setPhase(next) {
   get('pause').setAttribute('aria-label',next === 'paused' ? 'Resume game' : 'Pause game');
   get('again').hidden = next !== 'paused' && next !== 'won';
   get('again').textContent = next === 'won' ? 'Replay level' : 'Restart level';
-  if (next === 'playing') return;
+  if (next === 'playing') {
+    get('rush').hidden = !rushSecond;
+    return;
+  }
+  stepDebt = 0;
+  get('rush').hidden = true;
+  const earned = next === 'won' ? (health === 5 && peakStreak >= 20 ? 3 : health >= 4 ? 2 : 1) : 0;
+  if (earned > (medals[level] || 0)) {
+    medals[level] = earned;
+    write('snowfight-medals',medals);
+  }
+  const medal = get('medal');
+  medal.hidden = !earned;
+  if (earned) {
+    medal.textContent = `${medalNames[earned]} medal${earned < 3 ? ' · Gold: full health + 20 streak' : ''}`;
+    medal.dataset.rank = medalNames[earned].toLowerCase();
+  }
   if (next === 'won' && (!fastest || clock < fastest)) {
     fastest = clock;
     write(recordKey('snowfight-fastest'),fastest);
@@ -796,8 +866,9 @@ function fire(x, drift, damage) {
   if (shots.length < 150) shots.push({ x:clamp(x,-.98,.98), z:1.5, drift, damage });
 }
 function burst(x,z,color,large = false) {
-  if (reduced || particles.length >= 100) return;
-  const count = Math.min(large ? 13 : 6, 99-particles.length);
+  const limit = [16,40,72][quality];
+  if (reduced || particles.length >= limit) return;
+  const count = Math.min(large ? 13 : quality === 2 ? 5 : 2,limit-particles.length-1);
   const duration = large ? .66 : .40;
   for (let i = 0; i < count; i++) {
     const direction = Math.sin(i*2.399);
@@ -812,11 +883,21 @@ function countStreak() {
   streak += 1;
   streakUntil = clock + 2.2;
   peakStreak = Math.max(peakStreak,streak);
+  if (streak > 0 && streak % 20 === 0) {
+    rushUntil = clock + 4;
+    message('Frost Rush · Faster chocolate shots',1.4);
+    feedback(880,.16);
+  }
   if (streak < 3) return;
   const badge = get('streak');
   badge.hidden = false;
-  badge.textContent = `${streak} TOYS IN A ROW`;
+  badge.textContent = `${streak} STREAK · ×${scoreMultiplier()}`;
+  badge.dataset.hot = String(streak >= 10);
   if (streak % 10 === 0) feedback(610 + Math.min(streak,40)*8,.13);
+}
+
+function scoreMultiplier() {
+  return streak >= 20 ? 3 : streak >= 10 ? 2 : 1;
 }
 
 function clearStreak() {
@@ -848,12 +929,12 @@ function updateShots(dt) {
       const gift = gifts.find(item => !item.used && touches(item,.075));
       if (gift) {
         gift.used = true;
+        giftLayerDirty = true;
         hit = true;
         const gainsHelper = player.helpers < 6;
         player.helpers = Math.min(6,player.helpers + 1);
         score += 35;
         burst(gift.x,gift.z,'#fdfdff');
-        refreshHud();
         message(gainsHelper ? '+1 snowman helper' : 'Gift bonus +35',1);
         feedback(640,.1);
       }
@@ -868,8 +949,11 @@ function updateShots(dt) {
         if (enemy.hp <= 0) {
           enemies.splice(target,1);
           countStreak();
-          score += enemy.type === 'boss' ? 600 : 10;
-          get('score').textContent = `${score.toLocaleString('en-GB')} pts`;
+          const points = enemy.type === 'boss' ? 600 : 10*scoreMultiplier();
+          score += points;
+          if ((points > 10 || streak % 5 === 0) && popups.length < 9 && quality && !reduced) {
+            popups.push({x:enemy.x,z:enemy.z,text:`+${points}`,until:clock+.52});
+          }
           burst(enemy.x,enemy.z,toyTypes[enemy.type]?.color ?? '#f63c62',enemy.type === 'boss');
         }
         break;
@@ -882,8 +966,17 @@ function updateShots(dt) {
 function step(dt) {
   clock += dt;
   if (streakUntil && clock > streakUntil) clearStreak();
-  hintTimer -= dt;
-  if (hintTimer <= 0) get('hint').hidden = true;
+  if (hintTimer > 0) {
+    hintTimer -= dt;
+    if (hintTimer <= 0) get('hint').hidden = true;
+  }
+  const remainingRush = Math.max(0,Math.ceil(rushUntil-clock));
+  if (remainingRush !== rushSecond) {
+    rushSecond = remainingRush;
+    get('rush').hidden = !rushSecond;
+    get('rush-time').textContent = rushSecond ? `${rushSecond}s` : '';
+  }
+  while (popups.length && popups[0].until <= clock) popups.shift();
   if (messageUntil && clock > messageUntil) { messageUntil = 0; get('toast').textContent = ''; }
   const left = keys.has('arrowleft') || keys.has('a');
   const right = keys.has('arrowright') || keys.has('d');
@@ -891,7 +984,7 @@ function step(dt) {
   player.x += (player.target-player.x)*Math.min(1,dt*28);
   shotTimer -= dt;
   if (shotTimer <= 0) {
-    shotTimer += player.double ? .18 : .22;
+    shotTimer += (player.double ? .18 : .22)*(rushUntil > clock ? .68 : 1);
     if (player.double) {
       fire(player.x-.042,-.018,2);
       fire(player.x+.042,.018,2);
@@ -924,7 +1017,9 @@ function step(dt) {
   }
   // Faster toys can overtake a rank. Resolve nearer targets first and draw them on top.
   enemies.sort((a,b) => b.z-a.z);
+  const previousScore = score;
   updateShots(dt);
+  if (score !== previousScore) get('score').textContent = `${score.toLocaleString('en-GB')} pts`;
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.life -= dt;
@@ -947,20 +1042,40 @@ function step(dt) {
   }
 }
 
-function frame(now) {
-  const dt = Math.min((now-lastTime)/1000,.044);
-  if (phase === 'playing') {
-    visualTime += dt;
-    step(dt);
-    draw();
-  } else if (phase === 'ready' && !reduced) {
-    visualTime = now/1000;
-    if (now-readyFrame >= 32) {
-      readyFrame = now;
-      draw();
-    }
+function adjustQuality(elapsed) {
+  if (elapsed > .023) {
+    framePressure += Math.min(elapsed,.05);
+    stableTime = 0;
+  } else {
+    framePressure = Math.max(0,framePressure-elapsed*.65);
+    stableTime = elapsed < .019 ? stableTime+elapsed : 0;
   }
+  const next = framePressure > .65 ? Math.max(0,quality-1)
+    : stableTime > 8 ? Math.min(2,quality+1) : quality;
+  if (next === quality) return;
+  quality = next;
+  framePressure = stableTime = 0;
+  resize();
+}
+
+function frame(now) {
+  const elapsed = lastTime ? (now-lastTime)/1000 : 0;
   lastTime = now;
+  if (phase === 'playing') {
+    adjustQuality(elapsed);
+    stepDebt = Math.min(stepDebt+elapsed,.10);
+    const tick = 1/60;
+    while (stepDebt >= tick && phase === 'playing') {
+      stepDebt -= tick;
+      visualTime += tick;
+      step(tick);
+    }
+    draw();
+  } else if (phase === 'ready' && !reduced && now-readyFrame >= 48) {
+    visualTime = now/1000;
+    readyFrame = now;
+    draw();
+  }
   requestAnimationFrame(frame);
 }
 
@@ -989,9 +1104,11 @@ get('levels').addEventListener('click',() => {
       const formation = campaign[number-1];
       const button = document.createElement('button');
       button.textContent = number;
+      const rank = medals[number] || 0;
+      if (rank) button.dataset.medal = medalNames[rank].toLowerCase();
       button.disabled = number > unlocked;
       button.classList.toggle('current-level',number === level);
-      button.setAttribute('aria-label',`Level ${number}, ${formation.name}${button.disabled ? ', locked' : ''}`);
+      button.setAttribute('aria-label',`Level ${number}, ${formation.name}${button.disabled ? ', locked' : rank ? ', '+medalNames[rank]+' medal' : ''}`);
       if (number === level) button.setAttribute('aria-current','true');
       button.addEventListener('click',() => {
         if (phase === 'paused' && number === level) {

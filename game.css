@@ -78,3 +78,17 @@ footer #mute{justify-self:start;width:44px}
 #level-grid button.current-level{background:#a3264b;border-color:#ffc2a5}
 @media(orientation:landscape) and (max-height:600px){.picker{margin-left:0;max-height:calc(100dvh - 28px)}}
 @media(max-width:420px){#level-grid>div{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+#rush{position:absolute;left:50%;top:21%;transform:translateX(-50%);z-index:1;pointer-events:none;white-space:nowrap;color:#1a3155;background:linear-gradient(108deg,#93eeff,#fff0ae);border:1px solid #fff;border-radius:20px;padding:6px 13px;font-size:12px;letter-spacing:.08em;font-weight:950;box-shadow:0 2px 12px #00152b88}
+#rush-time{margin-left:4px;font-variant-numeric:tabular-nums}
+#streak[data-hot="true"]{color:#102a4c;background:linear-gradient(110deg,#acefff,#ffe1a0);box-shadow:0 2px 14px #051c4cb0}
+#medal{margin:10px 0 2px;color:#ffd4ad;font-size:12px;font-weight:850}
+#medal[data-rank="silver"]{color:#e4f7ff}
+#medal[data-rank="gold"]{color:#ffe592}
+#level-grid button{position:relative}
+#level-grid button[data-medal]::after{content:"";position:absolute;right:5px;top:5px;width:6px;height:6px;border-radius:50%;background:#e6a77e}
+#level-grid button[data-medal="silver"]::after{background:#c6eaff}
+#level-grid button[data-medal="gold"]::after{background:#ffdf78}
+.card{border-color:#92d9f6b2;background:linear-gradient(155deg,#214d77f7,#142849fd 56%,#201d3efc)}
+#action{border-radius:14px;color:#fffaf0;background:linear-gradient(165deg,#ec5965,#b92f52 58%,#8f244a)}
+#action:active{transform:translateY(1px)}

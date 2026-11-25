@@ -21,7 +21,7 @@
 <meta name="twitter:image" content="https://cornelius-aurelius.github.io/snowfight/share.jpg">
 <meta name="author" content="Cornelius Aurelius">
 <link rel="icon" href="icon.png">
-<link rel="stylesheet" href="game.css">
+<link rel="stylesheet" href="game.css?v=2">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Snowfight","genre":["Arcade","Christmas"],"gamePlatform":"Web browser","url":"https://cornelius-aurelius.github.io/snowfight/","author":{"@type":"Person","name":"Cornelius Aurelius","url":"https://corneliusaurelius.com/"}}</script>
 </head>
 <body>
@@ -34,6 +34,7 @@
   </header>
   <div id="toast" aria-live="polite"></div>
   <div id="streak" hidden></div>
+  <div id="rush" hidden>❄ FROST RUSH <span id="rush-time"></span></div>
   <div id="hint">Drag to slide · Aim by moving</div>
   <section id="panel" aria-label="Game menu">
     <div id="main-card" class="card">
@@ -43,6 +44,7 @@
       <button id="action">Play</button>
       <button id="again" hidden>Restart level</button>
       <button id="levels">Levels</button>
+      <div id="medal" hidden></div>
       <div id="best"></div>
       <a class="credit" href="https://corneliusaurelius.com/" target="_blank" rel="noopener">By Cornelius Aurelius</a>
     </div>
@@ -58,6 +60,6 @@
     <button id="share" aria-label="Share Snowfight" title="Share">↗</button>
   </footer>
 </main>
-<script src="game.js" defer></script>
+<script src="game.js?v=2" defer></script>
 </body>
 </html>
